@@ -1,0 +1,155 @@
+networks:
+  shared-network:
+    external: true
+
+services:
+  freshrss:
+    image: freshrss/freshrss
+    container_name: freshrss
+    environment:
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/freshrss/data:/var/www/FreshRSS/data
+      - ./config/freshrss/extensions:/var/www/FreshRSS/extensions
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Europe/Oslo
+      - WEBUI_PORT=6969
+    volumes:
+      - ./config/qbittorrent:/config
+      - /mnt/storage/media-server/data/torrents:/data/torrents
+    network_mode: service:gluetun
+    restart: unless-stopped
+
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TZ=Europe/Oslo
+      - VPN_SERVICE_PROVIDER=custom
+      - VPN_TYPE=wireguard
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      - VPN_PORT_FORWARDING_UP_COMMAND=/bin/sh -c 'wget -O- --retry-connrefused --post-data "json={\"listen_port\":{{PORTS}}}" http://127.0.0.1:6969/api/v2/app/setPreferences 2>&1'
+      - FIREWALL_OUTBOUND_SUBNETS=10.0.0.0/24
+      - DNS_ADDRESS=1.1.1.1
+    volumes:
+      - ./config/gluetun:/gluetun
+    ports:
+      - 6881:6881
+      - 6881:6881/udp
+      - 6969:6969
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  prowlarr:
+    image: linuxserver/prowlarr
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/prowlarr:/config
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  sonarr:
+    image: linuxserver/sonarr
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/sonarr:/config
+      - /mnt/storage/media-server/data:/data
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  radarr:
+    image: linuxserver/radarr
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/radarr:/config
+      - /mnt/storage/media-server/data:/data
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  jellyfin:
+    image: linuxserver/jellyfin
+    container_name: jellyfin
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/jellyfin:/config
+      - /mnt/storage/media-server/data/tv:/data/tv
+      - /mnt/storage/media-server/data/movies:/data/movies
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  bazarr:
+    image: linuxserver/bazarr
+    container_name: bazarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/bazarr:/config
+      - /mnt/storage/media-server/data:/data
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Europe/Oslo
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/seerr:/app/config
+    networks:
+      - shared-network
+    restart: unless-stopped

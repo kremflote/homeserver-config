@@ -1,0 +1,239 @@
+networks:
+  shared-network:
+    driver: bridge
+    name: shared-network
+  firefly-private:
+    driver: bridge
+
+services:
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager
+    container_name: nginx-proxy-manager
+    ports:
+      - 80:80
+      - 443:443
+      - 81:81
+    volumes:
+      - ./config/nginx-proxy-manager/data:/data
+      - ./config/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  nextcloud:
+    image: lscr.io/linuxserver/nextcloud:latest
+    container_name: nextcloud
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/nextcloud:/config
+      - /mnt/storage/infra/nextcloud/data:/data
+    depends_on:
+      - nextcloud-db
+      - redis
+    networks:
+      - shared-network
+    restart: unless-stopped
+  
+  redis:
+    image: redis:alpine
+    container_name: redis
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  nextcloud-db:
+    image: mariadb:10.11
+    container_name: nextcloud-db
+    environment:
+      - MYSQL_ROOT_PASSWORD=${NEXTCLOUD_DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+    volumes:
+      - /mnt/storage/infra/nextcloud-db:/var/lib/mysql
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  adguard:
+    image: adguard/adguardhome
+    container_name: adguard
+    volumes:
+      - ./config/adguard/work:/opt/adguardhome/work
+      - ./config/adguard/conf:/opt/adguardhome/conf
+    ports:
+      - 53:53/tcp
+      - 53:53/udp
+      - 3001:80
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  beszel:
+    image: henrygd/beszel:latest
+    container_name: beszel
+    restart: unless-stopped
+    environment:
+      APP_URL: https://beszel.mariuskristensen.no
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - ./config/beszel:/beszel_data
+      - ./config/beszel-socket:/beszel_socket
+    networks:
+      - shared-network
+
+  beszel-agent:
+    image: henrygd/beszel-agent
+    container_name: beszel-agent
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./beszel_agent_data:/var/lib/beszel-agent
+      # monitor other disks / partitions by mounting a folder in /extra-filesystems
+      # - /mnt/disk/.beszel:/extra-filesystems/sda1:ro
+    environment:
+      LISTEN: 45876
+      KEY: ${BESZEL_AGENT_KEY}
+      TOKEN: ${BESZEL_AGENT_TOKEN}
+      HUB_URL: https://beszel.mariuskristensen.no
+
+  portainer:
+    image: portainer/portainer-ce
+    container_name: portainer
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config/portainer:/data
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  uptime-kuma:
+    image: louislam/uptime-kuma
+    container_name: uptime-kuma
+    volumes:
+      - ./config/uptime-kuma:/app/data
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage
+    container_name: homepage
+    environment:
+      - HOMEPAGE_ALLOWED_HOSTS=home.mariuskristensen.no
+    volumes:
+      - ./config/homepage:/app/config
+      - /mnt/storage:/mnt/storage:ro
+    networks:
+      - shared-network
+    env_file:
+      - ./config/homepage/homepage.env
+    restart: unless-stopped
+
+  vikunja:
+    image: vikunja/vikunja
+    container_name: vikunja
+    user: "0:0"
+    environment:
+      - VIKUNJA_SERVICE_JWTSECRET=${VIKUNJA_SERVICE_JWTSECRET}
+      - VIKUNJA_DATABASE_TYPE=sqlite
+      - VIKUNJA_SERVICE_PUBLICURL=https://vikunja.mariuskristensen.no
+      - VIKUNJA_CORS_ENABLE=false
+      - TZ=Europe/Oslo
+    volumes:
+      - ./config/vikunja/files:/app/vikunja/files
+      - ./config/vikunja/db:/db
+    networks:
+      - shared-network
+    restart: unless-stopped
+
+  firefly:
+    image: fireflyiii/core:latest
+    container_name: firefly
+    env_file:
+      - ./config/firefly/firefly.env
+    volumes:
+      - ./config/firefly/upload:/var/www/html/storage/upload
+    depends_on:
+      - firefly-db
+    networks:
+      - shared-network
+      - firefly-private
+    restart: unless-stopped
+
+  firefly-db:
+    image: mariadb:10.11
+    container_name: firefly-db
+    env_file:
+      - ./config/firefly-db/db.env
+    volumes:
+      - ./config/firefly-db:/var/lib/mysql
+    networks:
+      - firefly-private
+    restart: unless-stopped
+
+  firefly-importer:
+    image: fireflyiii/data-importer:latest
+    container_name: firefly-importer
+    env_file:
+      - ./config/firefly-importer/importer.env
+    depends_on:
+      - firefly
+    volumes:
+      - ./config/firefly-importer:/config:ro
+    networks:
+      - shared-network
+      - firefly-private
+    restart: unless-stopped
+
+  firefly-cron:
+    image: alpine
+    container_name: firefly-cron
+    env_file:
+      - ./config/firefly/firefly.env
+    command: >
+      sh -c "apk add --no-cache tzdata wget &&
+      echo '0 3 * * * wget -qO- http://firefly:8080/api/v1/cron/'$$STATIC_CRON_TOKEN | crontab - &&
+      crond -f -L /dev/stdout"
+    depends_on:
+      - firefly
+    networks:
+      - firefly-private
+    restart: unless-stopped
+
+  matflote-backend:
+    build:
+      context: ./matflote
+      dockerfile: backend/Dockerfile
+    container_name: matflote-backend
+    env_file:
+      - ./config/matflote/matflote.env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DinnerPlanner=Data Source=/data/dinnerplanner.db
+      - ImageStorage__RootPath=/data/images
+    volumes:
+      - ./config/matflote/data:/data
+      - ./config/matflote/images:/data/images
+    networks:
+      shared-network:
+        aliases:
+          - backend
+    restart: unless-stopped
+
+  matflote-frontend:
+    build:
+      context: ./matflote
+      dockerfile: frontend/Dockerfile
+    container_name: matflote-frontend
+    depends_on:
+      - matflote-backend
+    networks:
+      - shared-network
+    restart: unless-stopped
