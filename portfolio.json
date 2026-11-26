@@ -1,0 +1,13 @@
+{
+  "title": "Raspberry Pi Home Server",
+  "description": "Dokumentasjon og konfigurasjon for min personlige Raspberry Pi-hjemmeserver, bygget for og med Docker Compose, Tailscale, Cloudflare og Nginx Proxy Manager.",
+  "category": "personal",
+  "legacyId": 4,
+  "thumbnail": "docs/portfolio/raspberrythumbnail.jpg",
+  "screenshots": [
+    "docs/portfolio/piserver.jpg"
+  ],
+  "sections": [
+    "Overview"
+  ]
+}
